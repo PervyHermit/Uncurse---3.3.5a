@@ -4,14 +4,37 @@ Uncurse is a lightweight click-to-cure micro-frame addon for World of Warcraft
 3.3.5a. It is designed for private/custom servers where cleansing spells may not
 use standard spell IDs or names.
 
+## Screenshot
+
+### In-game indicator
+
+![Uncurse highlighting a poisoned unit in game](assets/uncurse-in-game.png)
+
+### Settings menu
+
+![Uncurse configuration menu](assets/uncurse-settings.png)
+
 ## Installation
 
-Copy the `Uncurse` directory into:
+1. Download the repository from GitHub and extract the ZIP.
+2. Open the extracted repository folder.
+3. Copy the inner `Uncurse` directory into:
 
 `World of Warcraft\Interface\AddOns\`
 
-The final path should contain `Uncurse\Uncurse.toc`. Restart the client or type
-`/reload`.
+The installed structure must be:
+
+```text
+Interface
+└── AddOns
+    └── Uncurse
+        ├── Uncurse.toc
+        ├── Uncurse.lua
+        └── Options.lua
+```
+
+Do not copy the entire downloaded repository into `AddOns`; WoW needs the inner
+folder named exactly `Uncurse`. Restart the client or type `/reload`.
 
 ## Setup
 
