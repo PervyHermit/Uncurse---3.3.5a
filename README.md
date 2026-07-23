@@ -42,7 +42,8 @@ folder named exactly `Uncurse`. Restart the client or type `/reload`.
    or type `/uncurse`.
 2. Enter cleansing spells exactly as their names appear in your spellbook.
 3. Click **Auto-detect** to infer the cure type from each spell tooltip.
-4. Verify the Magic, Curse, Disease, or Poison dropdown manually.
+4. Verify the Magic, Curse, Disease, and Poison checkboxes manually. A single
+   spell may have multiple cure types enabled.
 5. Unlock the frames and drag the blue `Uncurse` handle into position.
 6. Lock the frames when finished.
 
@@ -62,4 +63,4 @@ WoW's combat lockdown is active.
 
 WoW reports normal aura categories through `UnitDebuff`: Magic, Curse, Disease,
 or Poison. Tooltip detection is best-effort because custom servers may use
-unusual or localized wording. The manually selected dropdown is authoritative.
+unusual or localized wording. The manually selected checkboxes are authoritative.

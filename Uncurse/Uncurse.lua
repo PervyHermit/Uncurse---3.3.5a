@@ -8,7 +8,7 @@ local pairs, ipairs, type, tonumber = pairs, ipairs, type, tonumber
 local tinsert, tremove = table.insert, table.remove
 local CURE_TYPES = {"Magic", "Curse", "Disease", "Poison"}
 
-U.version = "1.1.0"
+U.version = "1.1.1"
 U.frames = {}
 U.unitOrder = {}
 U.pendingSecureUpdate = false
@@ -70,34 +70,19 @@ local function NormalizeBindings(database)
         local defaultType
         for cureType in pairs(defaultBinding.types) do defaultType = cureType end
 
-        local selectedType
-        if binding.spell and binding.spell ~= "" then
-            local nonDefault
-            local nonDefaultCount = 0
-            for _, cureType in ipairs(CURE_TYPES) do
-                if binding.types[cureType] and cureType ~= defaultType then
-                    nonDefault = cureType
-                    nonDefaultCount = nonDefaultCount + 1
-                end
-            end
-            if nonDefaultCount == 1 then
-                selectedType = nonDefault
-            elseif binding.types[defaultType] then
-                selectedType = defaultType
+        local selectedTypes = {}
+        local selectedCount = 0
+        for _, cureType in ipairs(CURE_TYPES) do
+            if binding.types[cureType] then
+                selectedTypes[cureType] = true
+                selectedCount = selectedCount + 1
             end
         end
-        if not selectedType and (not binding.spell or binding.spell == "") then
-            selectedType = defaultType
-        end
-        if not selectedType then
-            for _, cureType in ipairs(CURE_TYPES) do
-                if binding.types[cureType] then selectedType = cureType; break end
-            end
-        end
+        if selectedCount == 0 then selectedTypes[defaultType] = true end
 
         binding.click = defaultBinding.click
         binding.label = defaultBinding.label
-        binding.types = {[selectedType or defaultType] = true}
+        binding.types = selectedTypes
     end
     for index = #bindings, 4, -1 do bindings[index] = nil end
 end

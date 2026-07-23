@@ -2,7 +2,7 @@
 ## Title: Uncurse
 ## Notes: Lightweight click-to-cure micro frames for custom WotLK spells.
 ## Author: Uncurse contributors
-## Version: 1.1.0
+## Version: 1.1.1
 ## SavedVariables: UncurseDB
 
 Uncurse.lua

@@ -54,18 +54,6 @@ local function CommitSpell(row)
     U:ApplyLayout()
 end
 
-local function GetBindingType(binding)
-    for _, cureType in ipairs(TYPE_ORDER) do
-        if binding.types[cureType] then return cureType end
-    end
-    return TYPE_ORDER[1]
-end
-
-local function SetBindingType(index, cureType)
-    U.db.bindings[index].types = {[cureType] = true}
-    U:ApplyLayout()
-end
-
 local function CreateBindingRow(parent, index, y)
     local binding = U.db.bindings[index]
     local row = CreateFrame("Frame", nil, parent)
@@ -106,35 +94,31 @@ local function CreateBindingRow(parent, index, y)
             if found[cureType] then table.insert(detected, cureType) end
         end
 
-        if #detected == 1 then
-            SetBindingType(index, detected[1])
-            UIDropDownMenu_SetText(row.typeDropdown, detected[1])
-            U.Print("detected cure type: " .. detected[1] .. ".")
-        elseif #detected > 1 then
-            U.Print("tooltip mentions " .. table.concat(detected, ", ") .. "; please choose the intended type.")
+        if #detected > 0 then
+            U.db.bindings[index].types = {}
+            for _, cureType in ipairs(detected) do
+                U.db.bindings[index].types[cureType] = true
+            end
+            U:ApplyLayout()
+            for cureType, check in pairs(row.checks) do
+                check:SetChecked(U.db.bindings[index].types[cureType] and true or false)
+            end
+            U.Print("detected cure types: " .. table.concat(detected, ", ") .. ".")
         else
-            U.Print("no cure type found in the tooltip; please choose it manually.")
+            U.Print("no cure type found in the tooltip; please select it manually.")
         end
     end)
 
-    Label(row, "Cure type", 110, -37, "GameFontHighlightSmall")
-    local dropdown = CreateFrame("Frame", "UncurseBindingTypeDropdown" .. index, row, "UIDropDownMenuTemplate")
-    dropdown:SetPoint("TOPLEFT", 174, -22)
-    UIDropDownMenu_SetWidth(dropdown, 130)
-    UIDropDownMenu_Initialize(dropdown, function()
-        for _, cureType in ipairs(TYPE_ORDER) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = cureType
-            info.checked = GetBindingType(U.db.bindings[index]) == cureType
-            info.func = function()
-                SetBindingType(index, cureType)
-                UIDropDownMenu_SetText(dropdown, cureType)
-                CloseDropDownMenus()
-            end
-            UIDropDownMenu_AddButton(info)
-        end
-    end)
-    row.typeDropdown = dropdown
+    Label(row, "Cures", 0, -38, "GameFontHighlightSmall")
+    row.checks = {}
+    for typeIndex, cureType in ipairs(TYPE_ORDER) do
+        local check = CreateCheck(row, cureType, 72 + (typeIndex - 1) * 112, -29, function(self)
+            U.db.bindings[index].types[cureType] = self:GetChecked() and true or nil
+            U:ApplyLayout()
+        end)
+        check:SetScale(.9)
+        row.checks[cureType] = check
+    end
     return row
 end
 
@@ -189,7 +173,7 @@ panel.minimapCheck = CreateCheck(panel, "Hide minimap button", 440, -248, functi
 end)
 
 Label(panel, "Click bindings and curable types", 16, -263)
-Label(panel, "Enter the exact spellbook name. Auto-detect inspects its tooltip; verify the selected type.", 16, -285, "GameFontHighlightSmall")
+Label(panel, "Enter the exact spellbook name. Auto-detect checks every cure type; verify the boxes.", 16, -285, "GameFontHighlightSmall")
 
 panel.bindingRows = {}
 for index = 1, 3 do
@@ -225,7 +209,9 @@ function U:RefreshOptions()
         local binding = self.db.bindings[index]
         row.edit:SetText(binding.spell or "")
         SetEnabledText(row.edit)
-        UIDropDownMenu_SetText(row.typeDropdown, GetBindingType(binding))
+        for cureType, check in pairs(row.checks) do
+            check:SetChecked(binding.types[cureType] and true or false)
+        end
     end
 end
 
