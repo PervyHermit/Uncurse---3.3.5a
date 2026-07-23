@@ -1,0 +1,9 @@
+## Interface: 30300
+## Title: Uncurse
+## Notes: Lightweight click-to-cure micro frames for custom WotLK spells.
+## Author: Uncurse contributors
+## Version: 1.0.0
+## SavedVariables: UncurseDB
+
+Uncurse.lua
+Options.lua
