@@ -1,6 +1,6 @@
 local U = Uncurse
 
-local TYPE_ORDER = {"Magic", "Curse", "Disease", "Poison", "Other"}
+local TYPE_ORDER = {"Magic", "Curse", "Disease", "Poison"}
 
 local function Label(parent, text, x, y, template)
     local label = parent:CreateFontString(nil, "ARTWORK", template or "GameFontNormal")
@@ -54,56 +54,87 @@ local function CommitSpell(row)
     U:ApplyLayout()
 end
 
+local function GetBindingType(binding)
+    for _, cureType in ipairs(TYPE_ORDER) do
+        if binding.types[cureType] then return cureType end
+    end
+    return TYPE_ORDER[1]
+end
+
+local function SetBindingType(index, cureType)
+    U.db.bindings[index].types = {[cureType] = true}
+    U:ApplyLayout()
+end
+
 local function CreateBindingRow(parent, index, y)
     local binding = U.db.bindings[index]
     local row = CreateFrame("Frame", nil, parent)
     row:SetPoint("TOPLEFT", 14, y)
-    row:SetSize(590, 58)
+    row:SetSize(590, 72)
     row.index = index
 
-    Label(row, binding.label, 0, 0, "GameFontNormalSmall")
-    local edit = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
-    edit:SetPoint("TOPLEFT", 128, 5)
-    edit:SetSize(190, 22)
+    Label(row, binding.label, 0, -5, "GameFontNormalSmall")
+    local edit = CreateFrame("EditBox", "UncurseSpellEdit" .. index, row, "InputBoxTemplate")
+    edit:SetPoint("TOPLEFT", 110, 0)
+    edit:SetSize(260, 22)
     edit:SetAutoFocus(false)
     edit:SetMaxLetters(80)
     edit:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     edit:SetScript("OnEditFocusLost", function() CommitSpell(row) end)
     row.edit = edit
 
+    local fieldBackground = row:CreateTexture(nil, "BACKGROUND")
+    fieldBackground:SetPoint("TOPLEFT", edit, "TOPLEFT", -2, 0)
+    fieldBackground:SetPoint("BOTTOMRIGHT", edit, "BOTTOMRIGHT", 2, 0)
+    fieldBackground:SetTexture("Interface\\Buttons\\WHITE8X8")
+    fieldBackground:SetVertexColor(.015, .015, .015, .9)
+
     local detect = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-    detect:SetPoint("LEFT", edit, "RIGHT", 6, 0)
-    detect:SetSize(74, 22)
-    detect:SetText("Detect")
+    detect:SetPoint("LEFT", edit, "RIGHT", 10, 0)
+    detect:SetSize(82, 22)
+    detect:SetText("Auto-detect")
     detect:SetScript("OnClick", function()
         CommitSpell(row)
-        local found = U:ScanSpellTooltip(U.db.bindings[index].spell)
-        local any
+        local found, spellFound = U:ScanSpellTooltip(U.db.bindings[index].spell)
+        if not spellFound then
+            U.Print("spell not found in your spellbook; check its exact name.")
+            return
+        end
+
+        local detected = {}
         for _, cureType in ipairs(TYPE_ORDER) do
-            if cureType ~= "Other" and found[cureType] then
-                U.db.bindings[index].types[cureType] = true
-                any = true
-            end
+            if found[cureType] then table.insert(detected, cureType) end
         end
-        if any then
-            for _, cureType in ipairs(TYPE_ORDER) do
-                U.db.bindings[index].types[cureType] = found[cureType] and true or nil
-            end
+
+        if #detected == 1 then
+            SetBindingType(index, detected[1])
+            UIDropDownMenu_SetText(row.typeDropdown, detected[1])
+            U.Print("detected cure type: " .. detected[1] .. ".")
+        elseif #detected > 1 then
+            U.Print("tooltip mentions " .. table.concat(detected, ", ") .. "; please choose the intended type.")
+        else
+            U.Print("no cure type found in the tooltip; please choose it manually.")
         end
-        U:ApplyLayout()
-        U:RefreshOptions()
-        U.Print(any and "cure types detected; please verify them." or "no cure type detected; choose types manually.")
     end)
 
-    row.checks = {}
-    for typeIndex, cureType in ipairs(TYPE_ORDER) do
-        local check = CreateCheck(row, cureType, 112 + (typeIndex - 1) * 86, -28, function(self)
-            U.db.bindings[index].types[cureType] = self:GetChecked() and true or nil
-            U:ApplyLayout()
-        end)
-        check:SetScale(.9)
-        row.checks[cureType] = check
-    end
+    Label(row, "Cure type", 110, -37, "GameFontHighlightSmall")
+    local dropdown = CreateFrame("Frame", "UncurseBindingTypeDropdown" .. index, row, "UIDropDownMenuTemplate")
+    dropdown:SetPoint("TOPLEFT", 174, -22)
+    UIDropDownMenu_SetWidth(dropdown, 130)
+    UIDropDownMenu_Initialize(dropdown, function()
+        for _, cureType in ipairs(TYPE_ORDER) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = cureType
+            info.checked = GetBindingType(U.db.bindings[index]) == cureType
+            info.func = function()
+                SetBindingType(index, cureType)
+                UIDropDownMenu_SetText(dropdown, cureType)
+                CloseDropDownMenus()
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+    row.typeDropdown = dropdown
     return row
 end
 
@@ -158,11 +189,11 @@ panel.minimapCheck = CreateCheck(panel, "Hide minimap button", 440, -248, functi
 end)
 
 Label(panel, "Click bindings and curable types", 16, -263)
-Label(panel, "Enter the exact spellbook name. Detect reads its tooltip; you can always correct the type boxes.", 16, -285, "GameFontHighlightSmall")
+Label(panel, "Enter the exact spellbook name. Auto-detect inspects its tooltip; verify the selected type.", 16, -285, "GameFontHighlightSmall")
 
 panel.bindingRows = {}
-for index = 1, 4 do
-    panel.bindingRows[index] = CreateBindingRow(panel, index, -310 - (index - 1) * 57)
+for index = 1, 3 do
+    panel.bindingRows[index] = CreateBindingRow(panel, index, -310 - (index - 1) * 75)
 end
 
 local reset = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
@@ -194,9 +225,7 @@ function U:RefreshOptions()
         local binding = self.db.bindings[index]
         row.edit:SetText(binding.spell or "")
         SetEnabledText(row.edit)
-        for cureType, check in pairs(row.checks) do
-            check:SetChecked(binding.types[cureType] and true or false)
-        end
+        UIDropDownMenu_SetText(row.typeDropdown, GetBindingType(binding))
     end
 end
 
@@ -204,10 +233,10 @@ panel:SetScript("OnShow", function() U:RefreshOptions() end)
 InterfaceOptions_AddCategory(panel)
 
 local advanced = CreateFrame("Frame", "UncurseAdvancedOptionsPanel", UIParent)
-advanced.name = "Colors & Custom Debuffs"
+advanced.name = "Colors & Layout"
 advanced.parent = "Uncurse"
-Label(advanced, "Colors & Custom Debuffs", 16, -16, "GameFontNormalLarge")
-Label(advanced, "Additional layout controls and support for typeless custom-server effects.", 16, -42, "GameFontHighlightSmall")
+Label(advanced, "Colors & Layout", 16, -16, "GameFontNormalLarge")
+Label(advanced, "Additional layout and indicator color controls.", 16, -42, "GameFontHighlightSmall")
 
 Label(advanced, "Growth direction", 16, -82)
 local growth = CreateFrame("Frame", "UncurseGrowthDropdown", advanced, "UIDropDownMenuTemplate")
@@ -273,32 +302,9 @@ for index, cureType in ipairs(TYPE_ORDER) do
     colorButtons[cureType] = button
 end
 
-Label(advanced, "Typeless custom debuffs", 16, -215)
-Label(advanced, "Enter exact debuff names, separated by commas. These use any binding with the Other box enabled.", 16, -237, "GameFontHighlightSmall")
-local customEdit = CreateFrame("EditBox", nil, advanced, "InputBoxTemplate")
-customEdit:SetPoint("TOPLEFT", 20, -263)
-customEdit:SetSize(550, 24)
-customEdit:SetAutoFocus(false)
-customEdit:SetMaxLetters(1000)
-customEdit:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-customEdit:SetScript("OnEditFocusLost", function(self)
-    U.db.customDebuffs = {}
-    local text = self:GetText() or ""
-    for name in string.gmatch(text, "[^,]+") do
-        name = string.gsub(name, "^%s+", "")
-        name = string.gsub(name, "%s+$", "")
-        if name ~= "" then U.db.customDebuffs[name] = "Other" end
-    end
-    U:ApplyLayout()
-end)
-
 advanced:SetScript("OnShow", function()
     UIDropDownMenu_SetText(growth, growthLabels[U.db.growth] or U.db.growth)
     for cureType, button in pairs(colorButtons) do RefreshColorButton(button, cureType) end
-    local names = {}
-    for name in pairs(U.db.customDebuffs) do table.insert(names, name) end
-    table.sort(names)
-    customEdit:SetText(table.concat(names, ", "))
 end)
 InterfaceOptions_AddCategory(advanced)
 

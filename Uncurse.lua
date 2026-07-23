@@ -6,8 +6,9 @@ local U = Uncurse
 local floor, max, min = math.floor, math.max, math.min
 local pairs, ipairs, type, tonumber = pairs, ipairs, type, tonumber
 local tinsert, tremove = table.insert, table.remove
+local CURE_TYPES = {"Magic", "Curse", "Disease", "Poison"}
 
-U.version = "1.0.0"
+U.version = "1.1.0"
 U.frames = {}
 U.unitOrder = {}
 U.pendingSecureUpdate = false
@@ -41,15 +42,12 @@ local DEFAULTS = {
         Curse = {0.65, 0.20, 1.00},
         Disease = {0.75, 0.45, 0.10},
         Poison = {0.15, 0.85, 0.20},
-        Other = {1.00, 0.20, 0.20},
     },
     bindings = {
         { click = "LeftButton", label = "Left click", spell = "", types = { Magic = true } },
         { click = "RightButton", label = "Right click", spell = "", types = { Curse = true } },
-        { click = "MiddleButton", label = "Middle click", spell = "", types = { Poison = true, Disease = true } },
-        { click = "shift-LeftButton", label = "Shift + left click", spell = "", types = {} },
+        { click = "MiddleButton", label = "Middle click", spell = "", types = { Poison = true } },
     },
-    customDebuffs = {},
 }
 
 local function CopyDefaults(source, destination)
@@ -64,9 +62,50 @@ local function CopyDefaults(source, destination)
     return destination
 end
 
+local function NormalizeBindings(database)
+    local bindings = database.bindings
+    for index = 1, 3 do
+        local binding = bindings[index]
+        local defaultBinding = DEFAULTS.bindings[index]
+        local defaultType
+        for cureType in pairs(defaultBinding.types) do defaultType = cureType end
+
+        local selectedType
+        if binding.spell and binding.spell ~= "" then
+            local nonDefault
+            local nonDefaultCount = 0
+            for _, cureType in ipairs(CURE_TYPES) do
+                if binding.types[cureType] and cureType ~= defaultType then
+                    nonDefault = cureType
+                    nonDefaultCount = nonDefaultCount + 1
+                end
+            end
+            if nonDefaultCount == 1 then
+                selectedType = nonDefault
+            elseif binding.types[defaultType] then
+                selectedType = defaultType
+            end
+        end
+        if not selectedType and (not binding.spell or binding.spell == "") then
+            selectedType = defaultType
+        end
+        if not selectedType then
+            for _, cureType in ipairs(CURE_TYPES) do
+                if binding.types[cureType] then selectedType = cureType; break end
+            end
+        end
+
+        binding.click = defaultBinding.click
+        binding.label = defaultBinding.label
+        binding.types = {[selectedType or defaultType] = true}
+    end
+    for index = #bindings, 4, -1 do bindings[index] = nil end
+end
+
 -- Saved variables are available while addon files load. Initialize here so the
 -- options file can safely construct controls before ADDON_LOADED fires.
 UncurseDB = CopyDefaults(DEFAULTS, UncurseDB)
+NormalizeBindings(UncurseDB)
 U.db = UncurseDB
 
 local function Print(message)
@@ -93,25 +132,13 @@ local function SnapshotConfiguration()
         bindings[index] = binding
     end
 
-    local customDebuffs = {}
-    for name, cureType in pairs(U.db.customDebuffs) do
-        customDebuffs[name] = cureType
-    end
-
     U.appliedBindings = bindings
-    U.appliedCustomDebuffs = customDebuffs
     U.appliedEnabled = U.db.enabled
 end
 
 local function GetBindingForType(debuffType, debuffName)
-    local customDebuffs = U.appliedCustomDebuffs or U.db.customDebuffs
     local bindings = U.appliedBindings or U.db.bindings
-    local customType = customDebuffs[debuffName]
-    if customType and customType ~= "" then
-        debuffType = customType
-    elseif not debuffType or debuffType == "" then
-        return
-    end
+    if not debuffType or debuffType == "" then return end
 
     for index, binding in ipairs(bindings) do
         if binding.spell ~= "" and binding.types[debuffType] then
@@ -120,57 +147,62 @@ local function GetBindingForType(debuffType, debuffName)
     end
 end
 
-local function SpellExists(spellName)
-    if not spellName or spellName == "" then return false end
-    local name = GetSpellInfo(spellName)
-    return name ~= nil
-end
-U.SpellExists = SpellExists
-
-function U:ScanSpellTooltip(spellName)
-    local found = {}
-    if not spellName or spellName == "" then return found end
-
+local function FindSpellBookSlot(spellName)
+    if not spellName or spellName == "" then return end
     local wanted = string.lower(spellName)
-    local spellIndex
     for tab = 1, MAX_SKILLLINE_TABS do
         local _, _, offset, count = GetSpellTabInfo(tab)
         if not offset then break end
         for slot = offset + 1, offset + count do
             local name = GetSpellName(slot, BOOKTYPE_SPELL)
-            if name and string.lower(name) == wanted then
-                spellIndex = slot
-            end
+            if name and string.lower(name) == wanted then return slot end
         end
     end
-    if not spellIndex then return found end
+end
+
+local function SpellExists(spellName)
+    return FindSpellBookSlot(spellName) ~= nil
+end
+U.SpellExists = SpellExists
+
+function U:ScanSpellTooltip(spellName)
+    local found = {}
+    local spellIndex = FindSpellBookSlot(spellName)
+    if not spellIndex then return found, false end
 
     if not self.scanTooltip then
-        self.scanTooltip = CreateFrame("GameTooltip", "UncurseScanTooltip", UIParent, "GameTooltipTemplate")
-        self.scanTooltip:SetOwner(UIParent, "ANCHOR_NONE")
+        self.scanTooltip = CreateFrame("GameTooltip", "UncurseScanTooltip", nil, "GameTooltipTemplate")
     end
+    self.scanTooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
     self.scanTooltip:ClearLines()
-    self.scanTooltip:SetSpell(spellIndex, BOOKTYPE_SPELL)
+    local populated = self.scanTooltip.SetSpell and pcall(self.scanTooltip.SetSpell, self.scanTooltip, spellIndex, BOOKTYPE_SPELL)
+    if not populated or self.scanTooltip:NumLines() == 0 then
+        local link = GetSpellLink and GetSpellLink(spellIndex, BOOKTYPE_SPELL)
+        if link then self.scanTooltip:SetHyperlink(link) end
+    end
 
     local keywords = {
-        Magic = {"magic"},
-        Curse = {"curse"},
-        Disease = {"disease"},
-        Poison = {"poison"},
+        Magic = {"magic", "magical", "dispel"},
+        Curse = {"curse", "hex"},
+        Disease = {"disease", "plague"},
+        Poison = {"poison", "venom", "toxin"},
     }
-    for line = 2, self.scanTooltip:NumLines() do
-        local region = _G["UncurseScanTooltipTextLeft" .. line]
-        local text = region and region:GetText()
-        text = text and string.lower(text) or ""
-        for cureType, words in pairs(keywords) do
-            for _, word in ipairs(words) do
-                if string.find(text, word, 1, true) then
-                    found[cureType] = true
-                end
+    local scanText = string.lower(spellName)
+    local regions = {self.scanTooltip:GetRegions()}
+    for _, region in ipairs(regions) do
+        if region and region.GetObjectType and region:GetObjectType() == "FontString" then
+            local text = region:GetText()
+            if text then scanText = scanText .. "\n" .. string.lower(text) end
+        end
+    end
+    for cureType, words in pairs(keywords) do
+        for _, word in ipairs(words) do
+            if string.find(scanText, word, 1, true) then
+                found[cureType] = true
             end
         end
     end
-    return found
+    return found, true
 end
 
 local function BuildUnitOrder()
@@ -247,7 +279,7 @@ local function OnButtonEnter(self)
         local _, binding, resolvedType = GetBindingForType(debuffType, debuffName)
         if binding then
             foundAny = true
-            local color = U.db.colors[resolvedType] or U.db.colors.Other
+            local color = U.db.colors[resolvedType] or {1, .2, .2}
             local remaining = expiration and expiration > 0 and max(0, expiration - GetTime())
             local suffix = count and count > 1 and (" x" .. count) or ""
             if remaining then suffix = suffix .. string.format(" (%.1fs)", remaining) end
@@ -270,13 +302,23 @@ local function CreateUnitButton(index)
     button.background:SetVertexColor(.15, .15, .15, 1)
 
     button.highlight = button:CreateTexture(nil, "ARTWORK")
-    button.highlight:SetPoint("TOPLEFT", 1, -1)
-    button.highlight:SetPoint("BOTTOMRIGHT", -1, 1)
+    button.highlight:SetPoint("CENTER")
     button.highlight:SetTexture("Interface\\Buttons\\WHITE8X8")
     button.highlight:SetVertexColor(1, 1, 1, 1)
 
+    button.shadow = button:CreateTexture(nil, "BORDER")
+    button.shadow:SetPoint("CENTER", 1, -1)
+    button.shadow:SetTexture("Interface\\Buttons\\WHITE8X8")
+    button.shadow:SetVertexColor(0, 0, 0, .9)
+
+    button.pattern = button:CreateTexture(nil, "OVERLAY")
+    button.pattern:SetPoint("CENTER")
+    button.pattern:SetTexture("Interface\\Buttons\\UI-Listbox-Highlight2")
+    button.pattern:SetBlendMode("ADD")
+    button.pattern:SetAlpha(.18)
+
     button.border = button:CreateTexture(nil, "OVERLAY")
-    button.border:SetAllPoints()
+    button.border:SetPoint("CENTER")
     button.border:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
     button.border:SetBlendMode("ADD")
     button.border:SetAlpha(0)
@@ -315,9 +357,11 @@ function U:UpdateButton(button)
     end
 
     if bestBinding then
-        local color = self.db.colors[bestType] or self.db.colors.Other
+        local color = self.db.colors[bestType] or {1, .2, .2}
         button.highlight:SetVertexColor(color[1], color[2], color[3], 1)
         button:SetAlpha(self.db.activeAlpha)
+        button.shadow:SetAlpha(.9)
+        button.pattern:SetAlpha(.18)
         button.border:SetAlpha(.75)
         button.activeDebuff = bestName
         button.activeType = bestType
@@ -330,6 +374,8 @@ function U:UpdateButton(button)
         if not InCombat() then button:Show() end
     else
         button.highlight:SetVertexColor(.12, .12, .12, 1)
+        button.shadow:SetAlpha(.35)
+        button.pattern:SetAlpha(.06)
         button.border:SetAlpha(0)
         button.activeDebuff = nil
         button.activeType = nil
@@ -371,6 +417,11 @@ function U:ApplyLayout()
         local unit = self.unitOrder[index]
         button:ClearAllPoints()
         button:SetSize(size, size)
+        local indicatorSize = max(4, floor(size * .75 + .5))
+        button.highlight:SetSize(indicatorSize, indicatorSize)
+        button.pattern:SetSize(indicatorSize, indicatorSize)
+        button.shadow:SetSize(min(size, indicatorSize + 3), min(size, indicatorSize + 3))
+        button.border:SetSize(min(size, indicatorSize + 5), min(size, indicatorSize + 5))
         if unit then
             local col = (index - 1) % columns
             local row = floor((index - 1) / columns)
@@ -558,6 +609,7 @@ eventFrame:RegisterEvent("SPELLS_CHANGED")
 eventFrame:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" and arg1 == ADDON_NAME then
         UncurseDB = CopyDefaults(DEFAULTS, UncurseDB)
+        NormalizeBindings(UncurseDB)
         U.db = UncurseDB
         CreateAnchor()
         U:ApplyPosition()
